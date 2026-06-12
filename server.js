@@ -24,9 +24,11 @@ app.use('/static', express.static(path.join(__dirname, 'public')));
 
 // CORS — щоб трекер з іншого домену міг слати дані
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -94,59 +96,4 @@ app.get('/api/heatmap', (req, res) => {
   const { site, url, type } = req.query; // type = click | move
   const events = loadEvents(site, url).filter(e => e.type === (type || 'click'));
   const points = events.map(e => ({
-    x_pct: e.x_pct, y_pct: e.y_pct, selector: e.selector, rage: e.rage || false
-  }));
-  res.json({ count: points.length, points });
-});
-
-// ---- API: воронка глибини скролу ----
-app.get('/api/scroll-funnel', (req, res) => {
-  const { site, url } = req.query;
-  const events = loadEvents(site, url).filter(e => e.type === 'scroll_depth');
-  const marks = [25, 50, 75, 90, 100];
-  const counts = {};
-  marks.forEach(m => counts[m] = 0);
-  events.forEach(e => { if (counts[e.depth] !== undefined) counts[e.depth]++; });
-
-  const pageviews = loadEvents(site, url).filter(e => e.type === 'pageview').length;
-
-  res.json({
-    pageviews,
-    funnel: marks.map(m => ({
-      depth_pct: m,
-      sessions_reached: counts[m],
-      pct_of_visitors: pageviews ? Math.round((counts[m] / pageviews) * 100) : 0
-    }))
-  });
-});
-
-// ---- API: топ кліків по елементах (де клікають найчастіше) ----
-app.get('/api/top-elements', (req, res) => {
-  const { site, url } = req.query;
-  const events = loadEvents(site, url).filter(e => e.type === 'click');
-  const counts = {};
-  events.forEach(e => {
-    const key = e.selector + (e.text ? ` "${e.text}"` : '');
-    counts[key] = counts[key] || { selector: key, clicks: 0, rage_clicks: 0 };
-    counts[key].clicks++;
-    if (e.rage) counts[key].rage_clicks++;
-  });
-  res.json(Object.values(counts).sort((a, b) => b.clicks - a.clicks).slice(0, 30));
-});
-
-// ---- API: список унікальних URL для випадаючого списку у дашборді ----
-app.get('/api/urls', (req, res) => {
-  const events = loadEvents(req.query.site).filter(e => e.type === 'pageview');
-  const urls = [...new Set(events.map(e => e.url))];
-  res.json(urls);
-});
-
-// ---- Roзкидання дашборду ----
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
-});
-
-app.listen(PORT, () => {
-  console.log(`Analytics server: http://localhost:${PORT}`);
-  console.log(`Tracker script:  http://localhost:${PORT}/static/tracker.js`);
-});
+    x_pct: e.x_pct,
