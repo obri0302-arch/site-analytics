@@ -1,0 +1,12 @@
+{
+  "name": "site-analytics",
+  "version": "1.0.0",
+  "description": "Self-hosted аналог Hotjar: heatmap кліків/руху миші, глибина скролу, час на сторінці, rage clicks",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

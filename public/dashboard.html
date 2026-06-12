@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Site Analytics Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #1a1d24; --border: #2a2e38;
+    --text: #e6e8eb; --muted: #8b92a1; --accent: #5b8def;
+    --hot: #ff4d4d; --warm: #ffa64d; --cool: #4d8dff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  select, button { background: var(--panel); color: var(--text); border:1px solid var(--border); padding:8px 12px; border-radius:6px; font-size:14px; }
+  button { cursor:pointer; }
+  button:hover { border-color: var(--accent); }
+  main { padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .full { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .heatmap-wrap { position: relative; width: 100%; aspect-ratio: 16/10; background: #0a0c10; border-radius: 6px; overflow: hidden; border:1px solid var(--border); }
+  .funnel-bar { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .funnel-bar .label { width:60px; font-size:13px; color: var(--muted); }
+  .funnel-bar .track { flex:1; background:#0a0c10; border-radius:4px; height:18px; overflow:hidden; }
+  .funnel-bar .fill { height:100%; background: var(--accent); }
+  .funnel-bar .val { width:50px; text-align:right; font-size:13px; }
+  .toggle-group { display:flex; gap:4px; }
+  .toggle-group button.active { border-color: var(--accent); color: var(--accent); }
+  .legend { display:flex; gap:16px; font-size:12px; color: var(--muted); margin-top:8px; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .empty { color: var(--muted); font-size:13px; padding:12px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 Site Analytics</h1>
+  <select id="siteSelect"><option value="">(всі сайти)</option></select>
+  <select id="urlSelect"><option value="">Оберіть сторінку...</option></select>
+  <div class="toggle-group">
+    <button id="btnClick" class="active">Кліки</button>
+    <button id="btnMove">Рух миші</button>
+  </div>
+  <button id="refreshBtn">↻ Оновити</button>
+</header>
+
+<main>
+  <div class="panel full">
+    <h2>Heatmap (клік/рух — % від ширини та висоти сторінки)</h2>
+    <div class="heatmap-wrap" id="heatmapWrap">
+      <canvas id="heatmapCanvas"></canvas>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--cool)"></i> мало активності</span>
+      <span><i class="dot" style="background:var(--warm)"></i> середньо</span>
+      <span><i class="dot" style="background:var(--hot)"></i> гаряча зона</span>
+      <span><i class="dot" style="background:#ff0; box-shadow:0 0 6px #ff0"></i> rage click (можлива проблема UX)</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Глибина скролу (на яку частину сторінки доходять)</h2>
+    <div id="scrollFunnel"><div class="empty">Немає даних</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Топ елементів за кліками</h2>
+    <table id="topElementsTable">
+      <thead><tr><th>Елемент</th><th>Кліки</th><th>Rage</th></tr></thead>
+      <tbody><tr><td colspan="3" class="empty">Немає даних</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel full">
+    <h2>Сторінки — загальна статистика</h2>
+    <table id="pagesTable">
+      <thead><tr><th>URL</th><th>Перегляди</th><th>Унікальні сесії</th><th>Сер. час на сторінці</th><th>Сер. глибина скролу</th></tr></thead>
+      <tbody><tr><td colspan="5" class="empty">Немає даних</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const API = ''; // той самий хост
+let heatType = 'click';
+
+document.getElementById('btnClick').onclick = () => setHeatType('click');
+document.getElementById('btnMove').onclick = () => setHeatType('move');
+document.getElementById('refreshBtn').onclick = loadAll;
+document.getElementById('urlSelect').onchange = () => { loadHeatmap(); loadFunnel(); loadTopElements(); };
+document.getElementById('siteSelect').onchange = loadAll;
+
+function setHeatType(t) {
+  heatType = t;
+  document.getElementById('btnClick').classList.toggle('active', t === 'click');
+  document.getElementById('btnMove').classList.toggle('active', t === 'move');
+  loadHeatmap();
+}
+
+function currentSite() { return document.getElementById('siteSelect').value; }
+function currentUrl() { return document.getElementById('urlSelect').value; }
+
+async function loadUrls() {
+  const res = await fetch(`${API}/api/urls?site=${encodeURIComponent(currentSite())}`);
+  const urls = await res.json();
+  const sel = document.getElementById('urlSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Оберіть сторінку...</option>' +
+    urls.map(u => `<option value="${u}">${u}</option>`).join('');
+  if (urls.includes(prev)) sel.value = prev;
+  else if (urls.length) sel.value = urls[0];
+}
+
+async function loadPages() {
+  const res = await fetch(`${API}/api/pages?site=${encodeURIComponent(currentSite())}`);
+  const data = await res.json();
+  const tbody = document.querySelector('#pagesTable tbody');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">Немає даних</td></tr>'; return; }
+  tbody.innerHTML = data.map(p => `
+    <tr>
+      <td>${p.url}</td>
+      <td>${p.pageviews}</td>
+      <td>${p.unique_sessions}</td>
+      <td>${p.avg_time_on_page_sec}s</td>
+      <td>${p.avg_scroll_depth_pct}%</td>
+    </tr>`).join('');
+}
+
+async function loadFunnel() {
+  const url = currentUrl();
+  const box = document.getElementById('scrollFunnel');
+  if (!url) { box.innerHTML = '<div class="empty">Оберіть сторінку</div>'; return; }
+  const res = await fetch(`${API}/api/scroll-funnel?site=${encodeURIComponent(currentSite())}&url=${encodeURIComponent(url)}`);
+  const data = await res.json();
+  if (!data.pageviews) { box.innerHTML = '<div class="empty">Немає даних</div>'; return; }
+  box.innerHTML = data.funnel.map(f => `
+    <div class="funnel-bar">
+      <div class="label">${f.depth_pct}%</div>
+      <div class="track"><div class="fill" style="width:${f.pct_of_visitors}%"></div></div>
+      <div class="val">${f.pct_of_visitors}%</div>
+    </div>`).join('') +
+    `<div class="legend">Усього переглядів сторінки: ${data.pageviews}</div>`;
+}
+
+async function loadTopElements() {
+  const url = currentUrl();
+  const tbody = document.querySelector('#topElementsTable tbody');
+  if (!url) { tbody.innerHTML = '<tr><td colspan="3" class="empty">Оберіть сторінку</td></tr>'; return; }
+  const res = await fetch(`${API}/api/top-elements?site=${encodeURIComponent(currentSite())}&url=${encodeURIComponent(url)}`);
+  const data = await res.json();
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">Немає даних</td></tr>'; return; }
+  tbody.innerHTML = data.map(e => `
+    <tr>
+      <td>${e.selector}</td>
+      <td>${e.clicks}</td>
+      <td>${e.rage_clicks > 0 ? '⚠️ ' + e.rage_clicks : '—'}</td>
+    </tr>`).join('');
+}
+
+async function loadHeatmap() {
+  const url = currentUrl();
+  const wrap = document.getElementById('heatmapWrap');
+  const canvas = document.getElementById('heatmapCanvas');
+  const rect = wrap.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!url) return;
+  const res = await fetch(`${API}/api/heatmap?site=${encodeURIComponent(currentSite())}&url=${encodeURIComponent(url)}&type=${heatType}`);
+  const data = await res.json();
+
+  // Малюємо "тепло" як радіальні градієнти, що накладаються
+  ctx.globalCompositeOperation = 'lighter';
+  data.points.forEach(p => {
+    if (p.x_pct == null || p.y_pct == null) return;
+    const x = (p.x_pct / 100) * canvas.width;
+    const y = (p.y_pct / 100) * canvas.height;
+    const r = heatType === 'click' ? 28 : 18;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, 'rgba(255,80,80,0.35)');
+    grad.addColorStop(0.5, 'rgba(255,166,77,0.15)');
+    grad.addColorStop(1, 'rgba(77,141,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Rage clicks — окремо жовтими кільцями
+  if (heatType === 'click') {
+    data.points.filter(p => p.rage).forEach(p => {
+      const x = (p.x_pct / 100) * canvas.width;
+      const y = (p.y_pct / 100) * canvas.height;
+      ctx.strokeStyle = '#ff0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+  }
+
+  if (!data.count) {
+    ctx.fillStyle = '#8b92a1';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Немає даних для цієї сторінки', 16, 24);
+  }
+}
+
+async function loadAll() {
+  await loadUrls();
+  await Promise.all([loadPages(), loadHeatmap(), loadFunnel(), loadTopElements()]);
+}
+
+window.addEventListener('resize', loadHeatmap);
+loadAll();
+setInterval(loadAll, 15000); // авто-оновлення раз на 15с
+</script>
+</body>
+</html>
